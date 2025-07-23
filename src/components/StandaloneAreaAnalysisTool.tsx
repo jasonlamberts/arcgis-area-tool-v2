@@ -44,7 +44,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
 
   // Initialize map and sketch tools
   useEffect(() => {
-    if (!mapDiv.current) return;
+    if (!mapDiv.current || view) return; // Prevent re-initialization
 
     const initializeMap = async () => {
       try {
@@ -52,7 +52,6 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         const gLayer = new GraphicsLayer({
           title: 'Sketch Layer'
         });
-        setGraphicsLayer(gLayer);
 
         // Create feature layers from provided URLs
         const featureLayers = layers.map((layerUrl, index) => {
@@ -83,14 +82,14 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           layers: [...defaultLayers, ...featureLayers, gLayer]
         });
 
-        // Create the view
+        // Create the view with minimal UI
         const mapView = new MapView({
           container: mapDiv.current!,
           map: map,
           center: [extent[0], extent[1]],
           zoom: extent[2],
           ui: {
-            components: ["attribution"] // Keep attribution, remove zoom/navigation
+            components: [] // Remove all UI components including attribution to prevent blinking
           }
         });
 
@@ -100,8 +99,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           view: mapView,
           defaultCreateOptions: {
             hasZ: false
-          },
-          updateOnGraphicClick: false
+          }
         });
 
         // Handle sketch create events
@@ -116,16 +114,17 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         });
 
         await mapView.when();
+        
+        // Set state only after everything is ready
         setView(mapView);
         setSketchViewModel(sketch);
+        setGraphicsLayer(gLayer);
 
-        // Only show toast once when map is first ready
-        if (!view) {
-          toast({
-            title: "Map Ready",
-            description: "You can now sketch an area and run analysis"
-          });
-        }
+        // Show ready message once
+        toast({
+          title: "Map Ready",
+          description: "You can now sketch an area and run analysis"
+        });
 
       } catch (err) {
         console.error('Error initializing map:', err);
@@ -143,9 +142,12 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
     return () => {
       if (view) {
         view.destroy();
+        setView(null);
+        setSketchViewModel(null);
+        setGraphicsLayer(null);
       }
     };
-  }, [layers, basemap, extent, toast]);
+  }, []); // Remove dependencies to prevent re-initialization
 
   const startSketch = useCallback(() => {
     if (!sketchViewModel) return;
