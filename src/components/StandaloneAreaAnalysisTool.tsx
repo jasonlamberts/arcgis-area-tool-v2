@@ -40,47 +40,74 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
   // Initialize the tool and try to set up sketch on parent map
   useEffect(() => {
     const initializeSketch = () => {
+      console.log('Attempting to initialize sketch...');
+      console.log('Window parent:', window.parent);
+      console.log('Is iframe:', window.parent !== window);
+      
       try {
         // Try to access parent Experience Builder map
         if (window.parent && window.parent !== window) {
-          const parentView = (window.parent as any).app?.views?.[0];
-          if (parentView) {
-            // Create graphics layer for sketching
-            const graphicsLayer = new GraphicsLayer({ title: 'Analysis Areas' });
-            parentView.map.add(graphicsLayer);
+          console.log('Checking for parent app...');
+          const parentApp = (window.parent as any).app;
+          console.log('Parent app:', parentApp);
+          
+          if (parentApp?.views) {
+            console.log('Parent views:', parentApp.views);
+            const parentView = parentApp.views[0];
+            console.log('Parent view:', parentView);
             
-            // Create sketch view model
-            const sketchVM = new SketchViewModel({
-              view: parentView,
-              layer: graphicsLayer
-            });
-            
-            // Handle sketch completion
-            sketchVM.on('create', (event) => {
-              if (event.state === 'complete') {
-                setSketchGeometry(event.graphic.geometry);
-                setIsSketchActive(false);
-                toast({
-                  title: "Area Sketched",
-                  description: "Click 'Analyze Sketched Area' to run analysis"
-                });
-              }
-            });
-            
-            sketchViewModelRef.current = sketchVM;
+            if (parentView) {
+              // Create graphics layer for sketching
+              const graphicsLayer = new GraphicsLayer({ title: 'Analysis Areas' });
+              parentView.map.add(graphicsLayer);
+              
+              // Create sketch view model
+              const sketchVM = new SketchViewModel({
+                view: parentView,
+                layer: graphicsLayer
+              });
+              
+              // Handle sketch completion
+              sketchVM.on('create', (event) => {
+                if (event.state === 'complete') {
+                  setSketchGeometry(event.graphic.geometry);
+                  setIsSketchActive(false);
+                  toast({
+                    title: "Area Sketched",
+                    description: "Click 'Analyze Sketched Area' to run analysis"
+                  });
+                }
+              });
+              
+              sketchViewModelRef.current = sketchVM;
+              console.log('Sketch successfully initialized');
+              
+              toast({
+                title: "Sketch Tool Ready",
+                description: "Connected to parent map successfully"
+              });
+              return;
+            }
           }
         }
+        
+        console.log('Could not access parent map, running in standalone mode');
+        toast({
+          title: "Standalone Mode",
+          description: "Running with default layers - sketch not available"
+        });
+        
       } catch (e) {
-        console.log('Could not initialize sketch on parent map:', e);
+        console.log('Error initializing sketch:', e);
+        toast({
+          title: "Standalone Mode",
+          description: "Running with default layers - sketch not available"
+        });
       }
     };
     
     setTimeout(initializeSketch, 1000); // Wait for parent map to be ready
     setIsInitialized(true);
-    toast({
-      title: "Analysis Tool Ready",
-      description: "Use the buttons below to analyze areas"
-    });
   }, [toast]);
 
   const startSketch = useCallback(() => {
@@ -109,49 +136,68 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
       let analysisExtent = null;
       let esriMap = null;
 
+      console.log('Starting analysis, useSketchedArea:', useSketchedArea);
+      
       // Try to access the parent window's map
       if (window.parent && window.parent !== window) {
         try {
-          const parentView = (window.parent as any).app?.views?.[0];
-          if (parentView) {
+          const parentApp = (window.parent as any).app;
+          console.log('Parent app for analysis:', parentApp);
+          
+          if (parentApp?.views?.[0]) {
+            const parentView = parentApp.views[0];
+            console.log('Parent view for analysis:', parentView);
             esriMap = parentView;
             
             if (useSketchedArea && sketchGeometry) {
+              console.log('Using sketched geometry:', sketchGeometry);
               analysisExtent = sketchGeometry;
             } else {
+              console.log('Using current view extent:', parentView.extent);
               analysisExtent = parentView.extent;
             }
           }
         } catch (e) {
-          console.log('Cannot access parent map, using default layers');
+          console.log('Cannot access parent map for analysis:', e);
         }
       }
 
-      // Use default layers if no parent map access
+      // Use default layers - always analyze something
       const layersToAnalyze = layers.length > 0 ? layers : [
         "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Wells/FeatureServer/0",
         "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Pipelines/FeatureServer/0"
       ];
 
+      console.log('Layers to analyze:', layersToAnalyze);
+      console.log('Analysis extent:', analysisExtent);
+
       const results: AnalysisResult[] = [];
 
       for (const layerUrl of layersToAnalyze) {
         try {
+          console.log(`Querying layer: ${layerUrl}`);
           const layer = new FeatureLayer({ url: layerUrl });
           await layer.load();
+          console.log(`Layer loaded: ${layer.title}`);
 
           const query = layer.createQuery();
           
-          // If we have parent map extent, use it; otherwise query all features
+          // If we have analysis extent, use it; otherwise query all features in a reasonable area
           if (analysisExtent) {
             query.geometry = analysisExtent;
             query.spatialRelationship = 'intersects';
+            console.log('Querying with geometry constraint');
+          } else {
+            // Use a default extent for the continental US if no extent available
+            query.where = "1=1";
+            console.log('Querying all features (no geometry constraint)');
           }
           
           query.outFields = ['*'];
           query.returnGeometry = false;
 
           const featureSet = await layer.queryFeatures(query);
+          console.log(`Found ${featureSet.features.length} features in ${layer.title}`);
           
           results.push({
             layerTitle: layer.title || 'Unnamed Layer',
