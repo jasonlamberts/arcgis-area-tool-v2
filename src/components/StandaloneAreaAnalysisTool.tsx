@@ -1,11 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import Map from '@arcgis/core/Map';
-import MapView from '@arcgis/core/views/MapView';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
-import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
-import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
-import Graphic from '@arcgis/core/Graphic';
-import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,205 +24,85 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
   reportTitle = "Area Analysis Tool",
   layers = [],
   basemap = "satellite",
-  extent = [-98, 39.5, 4] // [longitude, latitude, zoom]
+  extent = [-98, 39.5, 4]
 }) => {
-  const mapDiv = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<MapView | null>(null);
-  const [sketchViewModel, setSketchViewModel] = useState<SketchViewModel | null>(null);
-  const [graphicsLayer, setGraphicsLayer] = useState<GraphicsLayer | null>(null);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string>('');
-  const [sketchedGeometry, setSketchedGeometry] = useState<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
   const { toast } = useToast();
 
-  // Initialize map and sketch tools
+  // Initialize the tool
   useEffect(() => {
-    if (!mapDiv.current || view) return; // Prevent re-initialization
-
-    const initializeMap = async () => {
-      try {
-        // Create graphics layer for sketching
-        const gLayer = new GraphicsLayer({
-          title: 'Sketch Layer'
-        });
-
-        // Create feature layers from provided URLs
-        const featureLayers = layers.map((layerUrl, index) => {
-          return new FeatureLayer({
-            url: layerUrl,
-            title: `Layer ${index + 1}`,
-            visible: true
-          });
-        });
-
-        // Default layers if none provided
-        const defaultLayers = layers.length === 0 ? [
-          new FeatureLayer({
-            url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Wells/FeatureServer/0",
-            title: "Oil and Gas Wells",
-            visible: true
-          }),
-          new FeatureLayer({
-            url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Pipelines/FeatureServer/0",
-            title: "Pipelines", 
-            visible: true
-          })
-        ] : [];
-
-        // Create the map
-        const map = new Map({
-          basemap: basemap as any,
-          layers: [...defaultLayers, ...featureLayers, gLayer]
-        });
-
-        // Create the view with minimal UI
-        const mapView = new MapView({
-          container: mapDiv.current!,
-          map: map,
-          center: [extent[0], extent[1]],
-          zoom: extent[2],
-          ui: {
-            components: [] // Remove all UI components including attribution to prevent blinking
-          }
-        });
-
-        // Create sketch view model
-        const sketch = new SketchViewModel({
-          layer: gLayer,
-          view: mapView,
-          defaultCreateOptions: {
-            hasZ: false
-          }
-        });
-
-        // Handle sketch create events
-        sketch.on('create', (event) => {
-          if (event.state === 'complete') {
-            setSketchedGeometry(event.graphic.geometry);
-            toast({
-              title: "Area Sketched",
-              description: "Rectangle created successfully. Ready to analyze!"
-            });
-          }
-        });
-
-        await mapView.when();
-        
-        // Set state only after everything is ready
-        setView(mapView);
-        setSketchViewModel(sketch);
-        setGraphicsLayer(gLayer);
-
-        // Show ready message once
-        toast({
-          title: "Map Ready",
-          description: "You can now sketch an area and run analysis"
-        });
-
-      } catch (err) {
-        console.error('Error initializing map:', err);
-        setError('Failed to initialize map');
-        toast({
-          title: "Map Error",
-          description: "Failed to initialize the map",
-          variant: "destructive"
-        });
-      }
-    };
-
-    initializeMap();
-
-    return () => {
-      if (view) {
-        view.destroy();
-        setView(null);
-        setSketchViewModel(null);
-        setGraphicsLayer(null);
-      }
-    };
-  }, []); // Remove dependencies to prevent re-initialization
-
-  const startSketch = useCallback(() => {
-    if (!sketchViewModel) return;
-
-    // Clear existing graphics
-    if (graphicsLayer) {
-      graphicsLayer.removeAll();
-    }
-    
-    setSketchedGeometry(null);
-    setAnalysisResults([]);
-    setError('');
-
-    // Start rectangle sketch
-    sketchViewModel.create('rectangle');
-    
+    setIsInitialized(true);
     toast({
-      title: "Sketch Mode Active",
-      description: "Draw a rectangle on the map to define your analysis area"
+      title: "Analysis Tool Ready",
+      description: "Use the buttons below to analyze the current map view"
     });
-  }, [sketchViewModel, graphicsLayer, toast]);
+  }, [toast]);
 
-  const analyzeArea = useCallback(async () => {
-    if (!view) {
-      toast({
-        title: "Map Not Ready",
-        description: "Please wait for the map to load",
-        variant: "destructive"
-      });
-      return;
-    }
-
+  const analyzeCurrentView = useCallback(async () => {
     setIsAnalyzing(true);
     setError('');
     
     try {
-      // Use sketched geometry or current view extent
-      const analysisGeometry = sketchedGeometry || view.extent;
-      
-      if (!analysisGeometry) {
-        throw new Error('No analysis area defined');
+      // Try to access the parent window's map (Experience Builder integration)
+      let esriMap = null;
+      let analysisExtent = null;
+
+      // Look for Esri map in parent window
+      if (window.parent && window.parent !== window) {
+        try {
+          // Try to access Experience Builder's map
+          const parentView = (window.parent as any).app?.views?.[0];
+          if (parentView) {
+            esriMap = parentView;
+            analysisExtent = parentView.extent;
+          }
+        } catch (e) {
+          console.log('Cannot access parent map, using layer queries directly');
+        }
+      }
+
+      if (!analysisExtent && layers.length === 0) {
+        throw new Error('No map view available and no layers configured for analysis');
       }
 
       const results: AnalysisResult[] = [];
       
-      // Query all feature layers in the map
-      const featureLayers = view.map.layers.toArray().filter((layer) => 
-        layer.type === 'feature' && (layer as FeatureLayer).visible
-      ) as FeatureLayer[];
+      // Use configured layers or try to find layers in parent map
+      const layersToAnalyze = layers.length > 0 ? layers : [
+        "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Wells/FeatureServer/0",
+        "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Pipelines/FeatureServer/0"
+      ];
 
-      if (featureLayers.length === 0) {
-        throw new Error('No visible feature layers found for analysis');
-      }
-
-      for (const layer of featureLayers) {
+      for (const layerUrl of layersToAnalyze) {
         try {
+          const layer = new FeatureLayer({ url: layerUrl });
+          await layer.load();
+
           const query = layer.createQuery();
-          query.geometry = analysisGeometry;
-          query.spatialRelationship = 'intersects';
+          
+          // If we have parent map extent, use it; otherwise query all features
+          if (analysisExtent) {
+            query.geometry = analysisExtent;
+            query.spatialRelationship = 'intersects';
+          }
+          
           query.outFields = ['*'];
           query.returnGeometry = false;
-          
-          // Ensure geometry is in the right format for querying
-          if (sketchedGeometry) {
-            query.geometry = sketchedGeometry;
-          } else {
-            // Use view extent for analysis
-            query.geometry = view.extent;
-          }
 
           const featureSet = await layer.queryFeatures(query);
           
           results.push({
             layerTitle: layer.title || 'Unnamed Layer',
-            layerUrl: layer.url || '',
+            layerUrl: layerUrl,
             featureCount: featureSet.features.length,
             features: featureSet.features.map(f => f.attributes)
           });
 
         } catch (layerError) {
-          console.warn(`Error querying layer ${layer.title}:`, layerError);
+          console.warn(`Error querying layer ${layerUrl}:`, layerError);
         }
       }
 
@@ -253,7 +127,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
     } finally {
       setIsAnalyzing(false);
     }
-  }, [view, sketchedGeometry, toast]);
+  }, [layers, toast]);
 
   const downloadResults = useCallback((format: 'csv' | 'json' | 'pdf') => {
     if (!analysisResults.length) {
@@ -271,13 +145,11 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
       let mimeType = '';
 
       if (format === 'csv') {
-        // Generate CSV
         const csvRows = ['Layer,Feature Count,Layer URL'];
         analysisResults.forEach(result => {
           csvRows.push(`"${result.layerTitle}",${result.featureCount},"${result.layerUrl}"`);
         });
         
-        // Add feature details
         analysisResults.forEach(result => {
           if (result.features.length > 0) {
             csvRows.push('', `Features from ${result.layerTitle}:`);
@@ -296,7 +168,6 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         mimeType = 'text/csv';
         
       } else if (format === 'json') {
-        // Generate JSON
         const jsonData = {
           reportTitle,
           analysisDate: new Date().toISOString(),
@@ -312,7 +183,6 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         mimeType = 'application/json';
         
       } else if (format === 'pdf') {
-        // Simple text-based PDF content (would need PDF library for true PDF)
         const lines = [
           reportTitle,
           '='.repeat(reportTitle.length),
@@ -338,7 +208,6 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         mimeType = 'text/plain';
       }
 
-      // Create and trigger download
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -367,132 +236,109 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
   const totalFeatures = analysisResults.reduce((sum, result) => sum + result.featureCount, 0);
 
   return (
-    <div className="w-full h-screen flex flex-col bg-background">
+    <div className="w-full max-w-sm bg-background border rounded-lg shadow-lg">
       {/* Header */}
-      <div className="p-4 border-b bg-card">
-        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <MapPin className="h-6 w-6" />
+      <div className="p-3 border-b bg-card">
+        <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+          <MapPin className="h-5 w-5" />
           {reportTitle}
-        </h1>
+        </h2>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex">
-        {/* Map */}
-        <div className="flex-1 relative">
-          <div ref={mapDiv} className="w-full h-full" />
-          
-          {/* Map Controls */}
-          <div className="absolute top-4 left-4 flex flex-col gap-2">
-            <Button 
-              onClick={startSketch}
-              disabled={!sketchViewModel}
-              className="flex items-center gap-2"
-            >
-              <Square className="h-4 w-4" />
-              Sketch Area
-            </Button>
-            
-            <Button 
-              onClick={analyzeArea}
-              disabled={!view || isAnalyzing}
-              variant="secondary"
-              className="flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              {isAnalyzing ? 'Analyzing...' : 'Analyze Area'}
-            </Button>
-          </div>
-        </div>
+      {/* Controls */}
+      <div className="p-3 space-y-3">
+        {/* Instructions */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Instructions</CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs space-y-1">
+            <p>1. Navigate to your area of interest in the map</p>
+            <p>2. Click "Analyze Current View" to analyze visible area</p>
+            <p>3. Download results when complete</p>
+          </CardContent>
+        </Card>
 
-        {/* Results Panel */}
-        <div className="w-80 border-l bg-card overflow-y-auto">
-          <div className="p-4 space-y-4">
-            {/* Instructions */}
+        {/* Analysis Button */}
+        <Button 
+          onClick={analyzeCurrentView}
+          disabled={!isInitialized || isAnalyzing}
+          className="w-full flex items-center gap-2"
+        >
+          <FileText className="h-4 w-4" />
+          {isAnalyzing ? 'Analyzing...' : 'Analyze Current View'}
+        </Button>
+
+        {/* Error Display */}
+        {error && (
+          <Card className="border-destructive">
+            <CardContent className="p-3">
+              <p className="text-destructive text-sm">{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Results */}
+        {analysisResults.length > 0 && (
+          <>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Instructions</CardTitle>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  Analysis Summary
+                  <Badge variant="secondary">{totalFeatures} features</Badge>
+                </CardTitle>
               </CardHeader>
-              <CardContent className="text-xs space-y-1">
-                <p>1. Click "Sketch Area" to draw a rectangle</p>
-                <p>2. Draw your analysis area on the map</p>
-                <p>3. Click "Analyze Area" to run analysis</p>
-                <p>4. Download results when complete</p>
+              <CardContent className="space-y-2">
+                {analysisResults.map((result, index) => (
+                  <div key={index} className="flex justify-between items-center text-sm">
+                    <span className="truncate flex-1" title={result.layerTitle}>
+                      {result.layerTitle}
+                    </span>
+                    <Badge variant="outline" className="ml-2">
+                      {result.featureCount}
+                    </Badge>
+                  </div>
+                ))}
               </CardContent>
             </Card>
 
-            {/* Error Display */}
-            {error && (
-              <Card className="border-destructive">
-                <CardContent className="p-4">
-                  <p className="text-destructive text-sm">{error}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Results */}
-            {analysisResults.length > 0 && (
-              <>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center justify-between">
-                      Analysis Summary
-                      <Badge variant="secondary">{totalFeatures} features</Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {analysisResults.map((result, index) => (
-                      <div key={index} className="flex justify-between items-center text-sm">
-                        <span className="truncate flex-1" title={result.layerTitle}>
-                          {result.layerTitle}
-                        </span>
-                        <Badge variant="outline" className="ml-2">
-                          {result.featureCount}
-                        </Badge>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-
-                {/* Download Options */}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Download Results</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="w-full justify-start" 
-                      onClick={() => downloadResults('csv')}
-                    >
-                      <Download className="h-3 w-3 mr-2" />
-                      CSV Report
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="w-full justify-start" 
-                      onClick={() => downloadResults('json')}
-                    >
-                      <Download className="h-3 w-3 mr-2" />
-                      JSON Data
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="w-full justify-start" 
-                      onClick={() => downloadResults('pdf')}
-                    >
-                      <Download className="h-3 w-3 mr-2" />
-                      Text Report
-                    </Button>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </div>
-        </div>
+            {/* Download Options */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Download Results</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={() => downloadResults('csv')}
+                >
+                  <Download className="h-3 w-3 mr-2" />
+                  CSV Report
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={() => downloadResults('json')}
+                >
+                  <Download className="h-3 w-3 mr-2" />
+                  JSON Data
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={() => downloadResults('pdf')}
+                >
+                  <Download className="h-3 w-3 mr-2" />
+                  Text Report
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
   );
