@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
+import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
+import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,51 +32,108 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
+  const [sketchGeometry, setSketchGeometry] = useState<any>(null);
+  const [isSketchActive, setIsSketchActive] = useState(false);
+  const sketchViewModelRef = useRef<SketchViewModel | null>(null);
   const { toast } = useToast();
 
-  // Initialize the tool
+  // Initialize the tool and try to set up sketch on parent map
   useEffect(() => {
+    const initializeSketch = () => {
+      try {
+        // Try to access parent Experience Builder map
+        if (window.parent && window.parent !== window) {
+          const parentView = (window.parent as any).app?.views?.[0];
+          if (parentView) {
+            // Create graphics layer for sketching
+            const graphicsLayer = new GraphicsLayer({ title: 'Analysis Areas' });
+            parentView.map.add(graphicsLayer);
+            
+            // Create sketch view model
+            const sketchVM = new SketchViewModel({
+              view: parentView,
+              layer: graphicsLayer
+            });
+            
+            // Handle sketch completion
+            sketchVM.on('create', (event) => {
+              if (event.state === 'complete') {
+                setSketchGeometry(event.graphic.geometry);
+                setIsSketchActive(false);
+                toast({
+                  title: "Area Sketched",
+                  description: "Click 'Analyze Sketched Area' to run analysis"
+                });
+              }
+            });
+            
+            sketchViewModelRef.current = sketchVM;
+          }
+        }
+      } catch (e) {
+        console.log('Could not initialize sketch on parent map:', e);
+      }
+    };
+    
+    setTimeout(initializeSketch, 1000); // Wait for parent map to be ready
     setIsInitialized(true);
     toast({
       title: "Analysis Tool Ready",
-      description: "Use the buttons below to analyze the current map view"
+      description: "Use the buttons below to analyze areas"
     });
   }, [toast]);
 
-  const analyzeCurrentView = useCallback(async () => {
+  const startSketch = useCallback(() => {
+    if (sketchViewModelRef.current) {
+      setIsSketchActive(true);
+      setSketchGeometry(null);
+      sketchViewModelRef.current.create('rectangle');
+      toast({
+        title: "Sketch Mode Active",
+        description: "Draw a rectangle on the map to define analysis area"
+      });
+    } else {
+      toast({
+        title: "Sketch Not Available",
+        description: "Cannot access parent map for sketching",
+        variant: "destructive"
+      });
+    }
+  }, [toast]);
+
+  const analyzeArea = useCallback(async (useSketchedArea = false) => {
     setIsAnalyzing(true);
     setError('');
     
     try {
-      // Try to access the parent window's map (Experience Builder integration)
-      let esriMap = null;
       let analysisExtent = null;
+      let esriMap = null;
 
-      // Look for Esri map in parent window
+      // Try to access the parent window's map
       if (window.parent && window.parent !== window) {
         try {
-          // Try to access Experience Builder's map
           const parentView = (window.parent as any).app?.views?.[0];
           if (parentView) {
             esriMap = parentView;
-            analysisExtent = parentView.extent;
+            
+            if (useSketchedArea && sketchGeometry) {
+              analysisExtent = sketchGeometry;
+            } else {
+              analysisExtent = parentView.extent;
+            }
           }
         } catch (e) {
-          console.log('Cannot access parent map, using layer queries directly');
+          console.log('Cannot access parent map, using default layers');
         }
       }
 
-      if (!analysisExtent && layers.length === 0) {
-        throw new Error('No map view available and no layers configured for analysis');
-      }
-
-      const results: AnalysisResult[] = [];
-      
-      // Use configured layers or try to find layers in parent map
+      // Use default layers if no parent map access
       const layersToAnalyze = layers.length > 0 ? layers : [
         "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Wells/FeatureServer/0",
         "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Pipelines/FeatureServer/0"
       ];
+
+      const results: AnalysisResult[] = [];
 
       for (const layerUrl of layersToAnalyze) {
         try {
@@ -127,7 +186,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
     } finally {
       setIsAnalyzing(false);
     }
-  }, [layers, toast]);
+  }, [layers, sketchGeometry, toast]);
 
   const downloadResults = useCallback((format: 'csv' | 'json' | 'pdf') => {
     if (!analysisResults.length) {
@@ -253,21 +312,46 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
             <CardTitle className="text-sm">Instructions</CardTitle>
           </CardHeader>
           <CardContent className="text-xs space-y-1">
-            <p>1. Navigate to your area of interest in the map</p>
-            <p>2. Click "Analyze Current View" to analyze visible area</p>
+            <p>1. Use "Sketch Area" to draw analysis area</p>
+            <p>2. Or use "Analyze Current View" for visible area</p>
             <p>3. Download results when complete</p>
           </CardContent>
         </Card>
 
-        {/* Analysis Button */}
+        {/* Sketch Button */}
         <Button 
-          onClick={analyzeCurrentView}
-          disabled={!isInitialized || isAnalyzing}
+          onClick={startSketch}
+          disabled={!isInitialized || isAnalyzing || isSketchActive}
+          variant="outline"
           className="w-full flex items-center gap-2"
         >
-          <FileText className="h-4 w-4" />
-          {isAnalyzing ? 'Analyzing...' : 'Analyze Current View'}
+          <Square className="h-4 w-4" />
+          {isSketchActive ? 'Sketching...' : 'Sketch Area'}
         </Button>
+
+        {/* Analysis Buttons */}
+        <div className="space-y-2">
+          {sketchGeometry && (
+            <Button 
+              onClick={() => analyzeArea(true)}
+              disabled={!isInitialized || isAnalyzing}
+              className="w-full flex items-center gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              {isAnalyzing ? 'Analyzing...' : 'Analyze Sketched Area'}
+            </Button>
+          )}
+          
+          <Button 
+            onClick={() => analyzeArea(false)}
+            disabled={!isInitialized || isAnalyzing}
+            variant={sketchGeometry ? "outline" : "default"}
+            className="w-full flex items-center gap-2"
+          >
+            <FileText className="h-4 w-4" />
+            {isAnalyzing ? 'Analyzing...' : 'Analyze Current View'}
+          </Button>
+        </div>
 
         {/* Error Display */}
         {error && (
