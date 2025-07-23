@@ -90,7 +90,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           center: [extent[0], extent[1]],
           zoom: extent[2],
           ui: {
-            components: [] // Remove all default UI components
+            components: ["attribution"] // Keep attribution, remove zoom/navigation
           }
         });
 
@@ -100,7 +100,8 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           view: mapView,
           defaultCreateOptions: {
             hasZ: false
-          }
+          },
+          updateOnGraphicClick: false
         });
 
         // Handle sketch create events
@@ -206,6 +207,14 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           query.spatialRelationship = 'intersects';
           query.outFields = ['*'];
           query.returnGeometry = false;
+          
+          // Ensure geometry is in the right format for querying
+          if (sketchedGeometry) {
+            query.geometry = sketchedGeometry;
+          } else {
+            // Use view extent for analysis
+            query.geometry = view.extent;
+          }
 
           const featureSet = await layer.queryFeatures(query);
           
