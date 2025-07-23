@@ -88,7 +88,10 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
           container: mapDiv.current!,
           map: map,
           center: [extent[0], extent[1]],
-          zoom: extent[2]
+          zoom: extent[2],
+          ui: {
+            components: [] // Remove all default UI components
+          }
         });
 
         // Create sketch view model
@@ -115,10 +118,13 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         setView(mapView);
         setSketchViewModel(sketch);
 
-        toast({
-          title: "Map Ready",
-          description: "You can now sketch an area and run analysis"
-        });
+        // Only show toast once when map is first ready
+        if (!view) {
+          toast({
+            title: "Map Ready",
+            description: "You can now sketch an area and run analysis"
+          });
+        }
 
       } catch (err) {
         console.error('Error initializing map:', err);
