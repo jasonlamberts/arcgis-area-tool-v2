@@ -1,12 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
-import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
-import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Download, Square, FileText, MapPin } from 'lucide-react';
+import { Download, FileText, MapPin, Globe } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface AnalysisResult {
   layerTitle: string;
@@ -31,173 +30,84 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
   const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string>('');
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [sketchGeometry, setSketchGeometry] = useState<any>(null);
-  const [isSketchActive, setIsSketchActive] = useState(false);
-  const sketchViewModelRef = useRef<SketchViewModel | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<string>('alberta');
   const { toast } = useToast();
 
-  // Initialize the tool and try to set up sketch on parent map
+  // Predefined analysis regions (updated for Alberta focus)
+  const regions = {
+    alberta: { name: 'Alberta, Canada', extent: { xmin: -120.0, ymin: 49.0, xmax: -110.0, ymax: 60.0 } },
+    calgary: { name: 'Calgary Region', extent: { xmin: -114.5, ymin: 50.8, xmax: -113.8, ymax: 51.3 } },
+    edmonton: { name: 'Edmonton Region', extent: { xmin: -114.0, ymin: 53.3, xmax: -113.2, ymax: 53.8 } },
+    fortmcmurray: { name: 'Fort McMurray Region', extent: { xmin: -111.8, ymin: 56.4, xmax: -110.8, ymax: 57.0 } },
+    usa: { name: 'United States', extent: { xmin: -125, ymin: 25, xmax: -65, ymax: 50 } }
+  };
+
+  // Initialize the tool
   useEffect(() => {
-    const initializeSketch = () => {
-      console.log('Attempting to initialize sketch...');
-      console.log('Window parent:', window.parent);
-      console.log('Is iframe:', window.parent !== window);
-      
-      try {
-        // Try to access parent Experience Builder map
-        if (window.parent && window.parent !== window) {
-          console.log('Checking for parent app...');
-          const parentApp = (window.parent as any).app;
-          console.log('Parent app:', parentApp);
-          
-          if (parentApp?.views) {
-            console.log('Parent views:', parentApp.views);
-            const parentView = parentApp.views[0];
-            console.log('Parent view:', parentView);
-            
-            if (parentView) {
-              // Create graphics layer for sketching
-              const graphicsLayer = new GraphicsLayer({ title: 'Analysis Areas' });
-              parentView.map.add(graphicsLayer);
-              
-              // Create sketch view model
-              const sketchVM = new SketchViewModel({
-                view: parentView,
-                layer: graphicsLayer
-              });
-              
-              // Handle sketch completion
-              sketchVM.on('create', (event) => {
-                if (event.state === 'complete') {
-                  setSketchGeometry(event.graphic.geometry);
-                  setIsSketchActive(false);
-                  toast({
-                    title: "Area Sketched",
-                    description: "Click 'Analyze Sketched Area' to run analysis"
-                  });
-                }
-              });
-              
-              sketchViewModelRef.current = sketchVM;
-              console.log('Sketch successfully initialized');
-              
-              toast({
-                title: "Sketch Tool Ready",
-                description: "Connected to parent map successfully"
-              });
-              return;
-            }
-          }
-        }
-        
-        console.log('Could not access parent map, running in standalone mode');
-        toast({
-          title: "Standalone Mode",
-          description: "Running with default layers - sketch not available"
-        });
-        
-      } catch (e) {
-        console.log('Error initializing sketch:', e);
-        toast({
-          title: "Standalone Mode",
-          description: "Running with default layers - sketch not available"
-        });
-      }
-    };
-    
-    setTimeout(initializeSketch, 1000); // Wait for parent map to be ready
-    setIsInitialized(true);
+    toast({
+      title: "Analysis Tool Ready",
+      description: "Select a region and click analyze to get started"
+    });
   }, [toast]);
 
-  const startSketch = useCallback(() => {
-    if (sketchViewModelRef.current) {
-      setIsSketchActive(true);
-      setSketchGeometry(null);
-      sketchViewModelRef.current.create('rectangle');
-      toast({
-        title: "Sketch Mode Active",
-        description: "Draw a rectangle on the map to define analysis area"
-      });
-    } else {
-      toast({
-        title: "Sketch Not Available",
-        description: "Cannot access parent map for sketching",
-        variant: "destructive"
-      });
-    }
-  }, [toast]);
-
-  const analyzeArea = useCallback(async (useSketchedArea = false) => {
+  const analyzeRegion = useCallback(async () => {
     setIsAnalyzing(true);
     setError('');
     
     try {
-      let analysisExtent = null;
-      let esriMap = null;
+      // Get the selected region extent
+      const region = regions[selectedRegion as keyof typeof regions];
+      const analysisExtent = {
+        type: 'extent' as const,
+        xmin: region.extent.xmin,
+        ymin: region.extent.ymin,
+        xmax: region.extent.xmax,
+        ymax: region.extent.ymax,
+        spatialReference: { wkid: 4326 }
+      };
 
-      console.log('Starting analysis, useSketchedArea:', useSketchedArea);
-      
-      // Try to access the parent window's map
-      if (window.parent && window.parent !== window) {
-        try {
-          const parentApp = (window.parent as any).app;
-          console.log('Parent app for analysis:', parentApp);
-          
-          if (parentApp?.views?.[0]) {
-            const parentView = parentApp.views[0];
-            console.log('Parent view for analysis:', parentView);
-            esriMap = parentView;
-            
-            if (useSketchedArea && sketchGeometry) {
-              console.log('Using sketched geometry:', sketchGeometry);
-              analysisExtent = sketchGeometry;
-            } else {
-              console.log('Using current view extent:', parentView.extent);
-              analysisExtent = parentView.extent;
-            }
-          }
-        } catch (e) {
-          console.log('Cannot access parent map for analysis:', e);
-        }
-      }
-
-      // Use default layers - always analyze something
+      // Alberta Seismic Web Map Feature Layers
       const layersToAnalyze = layers.length > 0 ? layers : [
-        "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Wells/FeatureServer/0",
-        "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Oil_and_Gas_Pipelines/FeatureServer/0"
+        // Oil and Gas Infrastructure
+        "https://www.arcgis.com/home/item.html?id=a0ee1bee1871454f8cfb3a7a2f363232", // Oil and Gas Well - Surface Location
+        "https://www.arcgis.com/home/item.html?id=a05635f4a8d549ae8312225695f89b3b", // Oil and Gas Pipeline
+        
+        // Trails and Access
+        "https://geospatial.alberta.ca/titan/rest/services/boundary/trails/FeatureServer/1", // Winter Trails
+        "https://geospatial.alberta.ca/titan/rest/services/boundary/trails/FeatureServer/2", // Summer Trails
+        
+        // Water Features
+        "https://www.arcgis.com/home/item.html?id=121da69db16b4b7893539d9c9afd1651", // Spring Locations
+        
+        // Protected Areas and Boundaries
+        "https://geospatial.alberta.ca/titan/rest/services/boundary/parks_protected_areas_alberta/FeatureServer/0", // Protected Area Designations
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/federal_indian_reserve/FeatureServer/0", // First Nations Reserve
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/municipal_metis_settlement_public/FeatureServer/0", // Métis Settlement
+        
+        // Wildlife and Conservation
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/fishwild_wmu_biologist_contact_public/FeatureServer/0", // Wildlife Management Units
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/registered_fur_managment/FeatureServer/0", // Trapper Area
+        
+        // Administrative Boundaries
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/0", // Lands Division Working Zones
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/1", // Lands Division Districts
+        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/2"  // Lands Division Regions
       ];
-
-      console.log('Layers to analyze:', layersToAnalyze);
-      console.log('Analysis extent:', analysisExtent);
 
       const results: AnalysisResult[] = [];
 
       for (const layerUrl of layersToAnalyze) {
         try {
-          console.log(`Querying layer: ${layerUrl}`);
           const layer = new FeatureLayer({ url: layerUrl });
           await layer.load();
-          console.log(`Layer loaded: ${layer.title}`);
 
           const query = layer.createQuery();
-          
-          // If we have analysis extent, use it; otherwise query all features in a reasonable area
-          if (analysisExtent) {
-            query.geometry = analysisExtent;
-            query.spatialRelationship = 'intersects';
-            console.log('Querying with geometry constraint');
-          } else {
-            // Use a default extent for the continental US if no extent available
-            query.where = "1=1";
-            console.log('Querying all features (no geometry constraint)');
-          }
-          
+          query.geometry = analysisExtent;
+          query.spatialRelationship = 'intersects';
           query.outFields = ['*'];
           query.returnGeometry = false;
 
           const featureSet = await layer.queryFeatures(query);
-          console.log(`Found ${featureSet.features.length} features in ${layer.title}`);
           
           results.push({
             layerTitle: layer.title || 'Unnamed Layer',
@@ -217,7 +127,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
       
       toast({
         title: "Analysis Complete",
-        description: `Found ${totalFeatures} features across ${results.length} layers`
+        description: `Found ${totalFeatures} features in ${regions[selectedRegion as keyof typeof regions].name}`
       });
 
     } catch (err) {
@@ -232,7 +142,7 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
     } finally {
       setIsAnalyzing(false);
     }
-  }, [layers, sketchGeometry, toast]);
+  }, [selectedRegion, layers, toast]);
 
   const downloadResults = useCallback((format: 'csv' | 'json' | 'pdf') => {
     if (!analysisResults.length) {
@@ -358,46 +268,42 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
             <CardTitle className="text-sm">Instructions</CardTitle>
           </CardHeader>
           <CardContent className="text-xs space-y-1">
-            <p>1. Use "Sketch Area" to draw analysis area</p>
-            <p>2. Or use "Analyze Current View" for visible area</p>
+            <p>1. Select a geographic region to analyze</p>
+            <p>2. Click "Analyze Region" to run analysis</p>
             <p>3. Download results when complete</p>
           </CardContent>
         </Card>
 
-        {/* Sketch Button */}
+        {/* Region Selection */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Select Analysis Region</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedRegion} onValueChange={setSelectedRegion}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Choose region" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(regions).map(([key, region]) => (
+                  <SelectItem key={key} value={key}>
+                    {region.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+
+        {/* Analysis Button */}
         <Button 
-          onClick={startSketch}
-          disabled={!isInitialized || isAnalyzing || isSketchActive}
-          variant="outline"
+          onClick={analyzeRegion}
+          disabled={isAnalyzing}
           className="w-full flex items-center gap-2"
         >
-          <Square className="h-4 w-4" />
-          {isSketchActive ? 'Sketching...' : 'Sketch Area'}
+          <Globe className="h-4 w-4" />
+          {isAnalyzing ? 'Analyzing...' : `Analyze ${regions[selectedRegion as keyof typeof regions].name}`}
         </Button>
-
-        {/* Analysis Buttons */}
-        <div className="space-y-2">
-          {sketchGeometry && (
-            <Button 
-              onClick={() => analyzeArea(true)}
-              disabled={!isInitialized || isAnalyzing}
-              className="w-full flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              {isAnalyzing ? 'Analyzing...' : 'Analyze Sketched Area'}
-            </Button>
-          )}
-          
-          <Button 
-            onClick={() => analyzeArea(false)}
-            disabled={!isInitialized || isAnalyzing}
-            variant={sketchGeometry ? "outline" : "default"}
-            className="w-full flex items-center gap-2"
-          >
-            <FileText className="h-4 w-4" />
-            {isAnalyzing ? 'Analyzing...' : 'Analyze Current View'}
-          </Button>
-        </div>
 
         {/* Error Display */}
         {error && (
