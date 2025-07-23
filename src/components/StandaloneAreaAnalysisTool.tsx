@@ -66,32 +66,35 @@ const StandaloneAreaAnalysisTool: React.FC<StandaloneAreaAnalysisToolProps> = ({
         spatialReference: { wkid: 4326 }
       };
 
-      // Alberta Seismic Web Map Feature Layers
+      // Alberta Seismic Web Map Feature Layers (actual FeatureServer URLs from the web map)
       const layersToAnalyze = layers.length > 0 ? layers : [
-        // Oil and Gas Infrastructure
-        "https://www.arcgis.com/home/item.html?id=a0ee1bee1871454f8cfb3a7a2f363232", // Oil and Gas Well - Surface Location
-        "https://www.arcgis.com/home/item.html?id=a05635f4a8d549ae8312225695f89b3b", // Oil and Gas Pipeline
+        // Wildlife and Sensitive Species
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/43", // Trumpeter Swan Watercourse
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/42", // Spring Locations
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/41", // Rare Plants
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/40", // Rare Plant Species
         
-        // Trails and Access
+        // Protected Areas
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/39", // Protected Area Designations
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/38", // First Nations Reserve
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/37", // Métis Settlement
+        
+        // Wildlife Management
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/36", // Wildlife Management Units
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/35", // Trapper Area
+        
+        // Administrative Boundaries
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/34", // Lands Division Working Zones
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/33", // Lands Division Districts
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/32", // Lands Division Regions
+        
+        // Transportation
         "https://geospatial.alberta.ca/titan/rest/services/boundary/trails/FeatureServer/1", // Winter Trails
         "https://geospatial.alberta.ca/titan/rest/services/boundary/trails/FeatureServer/2", // Summer Trails
         
-        // Water Features
-        "https://www.arcgis.com/home/item.html?id=121da69db16b4b7893539d9c9afd1651", // Spring Locations
-        
-        // Protected Areas and Boundaries
-        "https://geospatial.alberta.ca/titan/rest/services/boundary/parks_protected_areas_alberta/FeatureServer/0", // Protected Area Designations
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/federal_indian_reserve/FeatureServer/0", // First Nations Reserve
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/municipal_metis_settlement_public/FeatureServer/0", // Métis Settlement
-        
-        // Wildlife and Conservation
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/fishwild_wmu_biologist_contact_public/FeatureServer/0", // Wildlife Management Units
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/registered_fur_managment/FeatureServer/0", // Trapper Area
-        
-        // Administrative Boundaries
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/0", // Lands Division Working Zones
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/1", // Lands Division Districts
-        "https://geospatial.alberta.ca/titan/rest/services/boundaries/land_division_boundaries_public/FeatureServer/2"  // Lands Division Regions
+        // Oil and Gas Infrastructure
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/0", // Oil and Gas Wells
+        "https://services7.arcgis.com/XSJsoBooGtVhu8dF/arcgis/rest/services/Alberta_Seismic_Web_map_WFL1/FeatureServer/1"  // Oil and Gas Pipelines
       ];
 
       const results: AnalysisResult[] = [];
